@@ -26,9 +26,6 @@ source('./config.R')
 source('./utils.R')
 source('./plots.R')
 
-dir.create("hysplit_met")
-dir.create("hysplit_output")
-dir.create("output")
 
 #########################
 # Parameters
