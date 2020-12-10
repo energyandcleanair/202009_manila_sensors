@@ -58,7 +58,7 @@ plot_hourly_variation <- function(meas, station, indicator, indicator_name, indi
     geom_line(aes(hour, mean)) +
     rcrea::theme_crea() +
     scale_y_continuous(limits=c(0,NA), expand=expand_scale(mult = c(0, 0.1))) +
-    scale_x_continuous(minor_breaks = seq(0,24), expand=expand_scale(mult = c(0, 0.1))) +
+    scale_x_continuous(minor_breaks = seq(0,24), expand=c(0,0)) +
     theme(panel.grid.minor.x = element_line(colour="grey90"),
           panel.grid.major.x = element_line(colour="grey90"))+
     labs(title=paste0("Hourly ", indicator_name, " levels in ", unique(m.hourly$station_name),
