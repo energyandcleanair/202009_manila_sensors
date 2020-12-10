@@ -115,6 +115,92 @@ plot_daily_variation <- function(meas, station, indicator, indicator_name, indic
   return(plt)
 }
 
+plot_daily_exceedances <- function(meas, indicator=c("pm10","pm25"), standard, station, folder){
+
+  m <- meas %>%
+    filter(indicator %in% !!indicator,
+           !is.na(value),
+           station==!!station) %>%
+    group_by(station, station_name,  indicator, indicator_name, date=lubridate::date(date)) %>%
+    summarize(value=mean(value)) %>%
+    group_by(station, indicator_name, weekday=lubridate::wday(date, label=T, week_start=1)) %>%
+    mutate(n_days_total=n()) %>%
+    inner_join(standard) %>%
+    filter(value>standard) %>%
+    group_by(station, station_name, indicator, indicator_name, weekday, n_days_total) %>%
+    summarize(n_days_violations=n()) %>%
+    mutate(fraction=n_days_violations/n_days_total)
+
+  station_name <- unique(m$station_name)
+
+  wdays <- c("Mon","Tue","Wed","Thu","Fri","Sat","Sun")
+  filler <- tidyr::crossing(station=station, indicator=indicator,
+                            weekday=wdays)
+
+  m.filled <- m %>% full_join(filler) %>%
+    mutate(weekday=factor(weekday, levels=wdays))
+
+
+  (plt <- ggplot(m.filled %>% replace_na(list("fraction"=0))) +
+    geom_bar(stat="identity", aes(x=weekday, y=fraction, fill=indicator_name), position="dodge") +
+    scale_y_continuous(labels = scales::percent, expand=expansion(mult=c(0,0.1))) +
+    rcrea::CREAtheme.scale_fill_crea_d(name=NULL) +
+    theme_crea() +
+    labs(title=paste("Violations of air quality levels in", station_name),
+         y="Share of days above regulatory threshold",
+         x=NULL))
+
+  dir.create(folder, showWarnings = F, recursive = T)
+
+  ggsave(file.path(folder, paste0("daily_violations_",paste0(indicator,collapse="_"),"_", station,".png")), plot=plt,
+         width=10, height=4)
+
+  return(plt)
+}
+
+plot_monthly_exceedances <- function(meas, indicator=c("pm10","pm25"), standard, station, folder){
+
+  m <- meas %>%
+    filter(indicator %in% !!indicator,
+           !is.na(value),
+           station==!!station) %>%
+    group_by(station, station_name,  indicator, indicator_name, date=lubridate::date(date)) %>%
+    summarize(value=mean(value)) %>%
+    group_by(station, indicator_name, month=lubridate::round_date(date, unit="month")) %>%
+    mutate(n_days_total=n()) %>%
+    inner_join(standard) %>%
+    filter(value>standard) %>%
+    group_by(station, station_name, indicator, indicator_name, month, n_days_total) %>%
+    summarize(n_days_violations=n()) %>%
+    mutate(fraction=n_days_violations/n_days_total)
+
+  station_name <- unique(m$station_name)
+
+  months <- unique(m$month)
+  filler <- tidyr::crossing(station=station, indicator=indicator,
+                            month=months)
+
+  m.filled <- m %>% full_join(filler)
+
+
+  (plt <- ggplot(m.filled %>% replace_na(list("fraction"=0))) +
+      geom_bar(stat="identity", aes(x=month, y=fraction, fill=indicator_name), position="dodge") +
+      scale_x_date(date_labels = "%b", date_breaks = "1 months") +
+      scale_y_continuous(labels = scales::percent, expand=expansion(mult=c(0,0.1))) +
+      rcrea::CREAtheme.scale_fill_crea_d(name=NULL) +
+      theme_crea() +
+      labs(title=paste("Violations of air quality levels in", station_name),
+           y="Share of days above regulatory threshold",
+           x=NULL))
+
+  dir.create(folder, showWarnings = F, recursive = T)
+
+  ggsave(file.path(folder, paste0("monthly_violations_",paste0(indicator,collapse="_"),"_", station,".png")), plot=plt,
+         width=10, height=4)
+
+  return(plt)
+}
+
 
 plot_hourly_transport <- function(t, folder, weekdays_only=T){
 

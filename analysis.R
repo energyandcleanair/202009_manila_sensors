@@ -82,6 +82,58 @@ plot_daily_variation(meas, station="sph", indicator="pm25",
                      folder="results/daily")
 
 
+
+# Exceedance --------------------------------------------------------------
+standard <- tibble(indicator=c("pm25", "pm10"), standard=c(25, 50))
+meas %>% group_by(station, indicator, date=lubridate::date(date)) %>%
+  summarise(value=mean(value)) %>%
+  inner_join(standard) %>%
+  filter(value > standard) %>%
+  group_by(station, indicator) %>%
+  summarise(count=n())
+
+meas %>% group_by(station, indicator, date=lubridate::date(date)) %>%
+  summarise(value=mean(value)) %>%
+  group_by(station, indicator) %>%
+  summarise(count=n())
+
+plot_daily_exceedances(meas, indicator=c("pm25","pm10"), standard,
+                       station="lamao",
+                       folder="results/daily")
+
+plot_daily_exceedances(meas, indicator=c("pm25","pm10"), standard,
+                       station="nch",
+                       folder="results/daily")
+
+plot_daily_exceedances(meas, indicator=c("pm25","pm10"), standard,
+                       station="sph",
+                       folder="results/daily")
+
+
+plot_daily_exceedances(meas, indicator=c("pm25"), standard,
+                       station="lamao",
+                       folder="results/daily")
+
+plot_daily_exceedances(meas, indicator=c("pm25"), standard,
+                       station="nch",
+                       folder="results/daily")
+
+plot_daily_exceedances(meas, indicator=c("pm25"), standard,
+                       station="sph",
+                       folder="results/daily")
+
+plot_monthly_exceedances(meas, indicator=c("pm25"), standard,
+                         station="lamao",
+                         folder="results/monthly")
+
+plot_monthly_exceedances(meas, indicator=c("pm25"), standard,
+                         station="nch",
+                         folder="results/monthly")
+
+plot_monthly_exceedances(meas, indicator=c("pm25"), standard,
+                       station="sph",
+                       folder="results/monthly")
+
 # Transport ---------------------------------------------------------------
 
 # rush hours
