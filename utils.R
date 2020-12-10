@@ -1,10 +1,14 @@
-read.stations <- function(){
-  tibble(station=c("lamao","nch","sph"),
-                latitude=c(14.514086,14.6205,10.7018),
-                longitude=c(120.609287,121.0209,122.5669))
+read.stations <- function(with_powerplants){
+  tibble(station=c("lamao","nch","sph","sph.powerplant","lamao.powerplant"),
+         station_name=c("Lamao","National Children's Hospital","St. Paul’s Hospital","sph.powerplant","lamao.powerplant"),
+         latitude=c(14.514086,14.6205,10.7018,10.72444,14.5204064),
+         longitude=c(120.609287,121.0209,122.5669,122.59582,120.6026809),
+         direction=c("backward","backward","backward","forward","forward"),
+         type=c("sensor","sensor","sensor","powerplant","powerplant")
+  )
 }
 
-read.measurements <- function(){
+read.measurements <- function(stations){
 
     d.lamao <- readxl::read_xlsx(file.path("data","LAMAO reading from Feb04-Aug19 2020.xlsx"))
     d.nch <- readxl::read_xlsx(file.path("data","NCH reading from Jan25-May29 2020.xlsx"))
@@ -29,9 +33,24 @@ read.measurements <- function(){
                  hcho="HCHO (ppb)",
                  tvoc="TVOC (ppb)"
                  ) %>%
-      tidyr::pivot_longer(cols=!c(timezone, date, station), names_to="indicator", values_to="value")
+      tidyr::pivot_longer(cols=!c(timezone, date, station), names_to="indicator", values_to="value") %>%
+      left_join(stations)
+
+    return(d)
 }
 
+read.transport.weekhours.2019 <- function(){
+  require(jsonlite)
+  f <- "data/tomtom/page-data.json"
+  wh.json <- jsonlite::fromJSON(f)$result$data$citiesJson$stats2019$results$weekHours
+
+  do.call("rbind", lapply(seq_along(wh.json),
+                          function(i){
+                            tibble(wh.json[[i]], hour=seq(0,23)) %>%
+                              mutate(weekday=names(wh.json)[[i]])}
+                          )
+          )
+}
 
 build_trajectories <- function(lat, lon, height, duration, date_from, date_to, met_type, station,
                                direction="backward",
@@ -73,6 +92,7 @@ build_trajectories <- function(lat, lon, height, duration, date_from, date_to, m
       )
     },
     error=function(c){
+      print(c)
       return(NA)
     })
   }
@@ -80,6 +100,8 @@ build_trajectories <- function(lat, lon, height, duration, date_from, date_to, m
   trajs <- do.call('rbind',
                  pbmclapply(dates_split, trajs_at_dates, mc.cores=detectCores()-1))
 
+  trajs <- do.call('rbind',
+                   lapply(dates_split, trajs_at_dates))
   # Update fields to be compatible with OpenAIR
   trajs$hour.inc <- trajs$hour_along
   trajs$date <- trajs$traj_dt_i

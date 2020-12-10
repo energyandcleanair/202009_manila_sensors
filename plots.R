@@ -10,6 +10,151 @@ plot.grid.col <- "transparent"
 
 
 # Plots -------------------------------------------------------------------
+plot_ts <- function(meas, n_days){
+
+  if(length(unique(meas$unit))){
+    unit <- unique(meas$unit)
+  }else{
+    unit <- NULL
+  }
+
+  (plt <- ggplot(meas %>%
+           rcrea::utils.rolling_average("day", n_days, "value", min_values = as.integer(n_days/3))) +
+    geom_line(aes(date, value, color=station_name)) +
+    facet_wrap(~indicator_name, scales="free_y") +
+    scale_color_discrete(name=NULL)+
+    ylim(0,NA) +
+      guides(color=guide_legend(nrow=1,byrow=TRUE)) +
+    theme_crea(legend.position="bottom") +
+    scale_y_continuous(limits=c(0,NA),expand=expand_scale(mult = c(0, 0.1))) +
+    labs(subtitle=paste0(n_days,"-day running average"), x=NULL, y=unit))
+
+  ggsave(file.path("results", paste0("manila_sensors_",n_days,"d.png")), plot=plt, width=10, height=5)
+  return(plt)
+}
+
+
+plot_hourly_variation <- function(meas, station, indicator, indicator_name, indicator_unit, folder, weekdays_only=T){
+
+  m <- meas %>% filter(station==!!station,
+                       indicator==!!indicator)
+  if(weekdays_only){
+    m <- m %>% filter(lubridate::wday(date, week_start=1) <6)
+  }
+
+  m.hourly <- m %>%
+    filter(!is.na(value)) %>%
+    mutate(hour=lubridate::hour(date)) %>%
+    group_by(station, station_name, indicator, hour) %>%
+    summarize(mean=mean(value),
+              p5=quantile(value, 0.05),
+              p50=quantile(value, 0.5),
+              p95=quantile(value, 0.95)
+              )
+
+
+  (plt <- ggplot(m.hourly) +
+    geom_ribbon(aes(hour, ymin=p5, ymax=p95), fill="grey90") +
+    geom_line(aes(hour, mean)) +
+    rcrea::theme_crea() +
+    scale_y_continuous(limits=c(0,NA), expand=expand_scale(mult = c(0, 0.1))) +
+    scale_x_continuous(minor_breaks = seq(0,24), expand=expand_scale(mult = c(0, 0.1))) +
+    theme(panel.grid.minor.x = element_line(colour="grey90"),
+          panel.grid.major.x = element_line(colour="grey90"))+
+    labs(title=paste0("Hourly ", indicator_name, " levels in ", unique(m.hourly$station_name),
+                      ifelse(weekdays_only, " during weekdays","")),
+         y=indicator_unit,
+        caption="Grey area represents the 5th and 95th percentiles. Solid line represents average value."
+    ))
+
+  dir.create(folder, showWarnings = F, recursive = T)
+
+  ggsave(file.path(folder, paste0("hourly_",indicator,"_", station,".png")), plot=plt,
+         width=8, height=4)
+
+  return(plt)
+}
+
+plot_daily_variation <- function(meas, station, indicator, indicator_name, indicator_unit, folder){
+
+  m.daily <- meas %>%
+    filter(!is.na(value)) %>%
+    filter(station==!!station, indicator==!!indicator) %>%
+    mutate(weekday=lubridate::wday(date, label=T, week_start=1)) %>%
+    group_by(station, station_name, indicator, weekday) %>%
+    summarize(mean=mean(value),
+              p5=quantile(value, 0),
+              p50=quantile(value, 0.5),
+              p95=quantile(value, 1),
+    ) %>% ungroup()
+
+  plt <- ggplot(m.daily ) +
+      geom_ribbon(aes(x=weekday, ymin=p5, ymax=p95, group=station), fill="grey90") +
+      geom_line(aes(x=weekday,y=mean, group=station)) +
+      rcrea::theme_crea() +
+      scale_y_continuous(limits=c(0,NA), expand=expand_scale(mult = c(0, 0.1))) +
+      # scale_x_discrete( expand=c(0,0)) +
+      theme(panel.grid.minor.x = element_line(colour="grey90"),
+            panel.grid.major.x = element_line(colour="grey90"))+
+      labs(title=paste0("Daily ", indicator_name, " levels in ", m.daily$station_name),
+           y=indicator_unit,
+           x=NULL,
+           caption="Grey area represents the 5th and 95th percentiles. Solid line represents average value."
+      )
+
+  if(indicator=="pm25"){
+   plt <- plt + geom_hline(yintercept=25, colour="red", linetype="dashed", show.legend = F) +
+      geom_text(aes(x='Mon', y=35,label="WHO guideline \n(25 µg/m3)",col="red",hjust=0), show.legend = F)
+  }
+
+  dir.create(folder, showWarnings = F, recursive = T)
+
+  ggsave(file.path(folder, paste0("daily_",indicator,"_", station,".png")), plot=plt,
+         width=8, height=4)
+
+  return(plt)
+}
+
+
+plot_hourly_transport <- function(t, folder, weekdays_only=T){
+
+
+  if(weekdays_only){
+    t <- t %>% filter(!weekday%in% c("Sat","Sun"))
+  }
+
+  t.hourly <-t %>%
+    filter(!is.na(congestion)) %>%
+    group_by(hour) %>%
+    summarize(mean=mean(congestion),
+              p5=quantile(congestion, 0.05),
+              p50=quantile(congestion, 0.5),
+              p95=quantile(congestion, 0.95)
+    )
+
+
+  (plt <- ggplot(t.hourly) +
+      geom_ribbon(aes(hour, ymin=p5, ymax=p95), fill="grey90") +
+      geom_line(aes(hour, mean)) +
+      rcrea::theme_crea() +
+      scale_y_continuous(limits=c(0,NA), expand=expand_scale(mult = c(0, 0.1))) +
+      scale_x_continuous(minor_breaks = seq(0,24), expand=c(0,0)) +
+      theme(panel.grid.minor.x = element_line(colour="grey90"),
+            panel.grid.major.x = element_line(colour="grey90"))+
+      labs(title=paste0("Contestion levels in Manila",
+                        ifelse(weekdays_only, " during weekdays",""),
+                        " in 2019"),
+           y=NULL,
+           caption="Grey area represents the 5th and 95th percentiles. Solid line represents average value. Source: TomTom"
+      ))
+
+  dir.create(folder, showWarnings = F, recursive = T)
+
+  ggsave(file.path(folder, paste0("hourly_congestion.png")), plot=plt,
+         width=8, height=4)
+
+  return(plt)
+}
 
 
 plot_trajectories_oldschool <- function(trajs_meas, year, month){

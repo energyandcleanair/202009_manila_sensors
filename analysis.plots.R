@@ -28,7 +28,7 @@ meas <- read.measurements()
 # Filtering out values above thresholds
 indicators <- c("pm25", "pm10", "aqi.cn", "aqi.us")
 limit <- tibble(indicator=c("pm25", "pm10", "aqi.cn", "aqi.us"),
-                limit=c(500, 800, 300, 300))
+                limit=c(500, 1041, 300, 300))
 meas <- meas %>%
   left_join(limit) %>%
   filter(indicator %in% indicators,

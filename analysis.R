@@ -43,37 +43,56 @@ alt_max <- 2e3
 # Build / read data
 #########################
 stations <- read.stations()
-meas <- read.measurements()
+meas <- read.measurements(stations)
 
-stations <- bind_rows(stations %>% mutate(direction="backward", type="sensor"),
-          tibble(station="sph.powerplant",latitude=10.72444,longitude=122.59582, direction="forward", type="powerplant"),
-          tibble(station="lamao.powerplant",latitude=14.5204064,longitude=120.6026809, direction="forward", type="powerplant"),
-          )
+
+limit <- tibble(indicator=c("pm25", "pm10", "aqi.cn", "aqi.us"),
+                indicator_name=c("PM2.5", "PM10", "AQI (CN)", "AQI (US)"),
+                limit=c(500, 1041, 300, 300),
+                unit=c("µg/m3","µg/m3","-","-"))
+meas <- meas %>% left_join(limit) %>% filter(value < limit)
 
 # Simple time series ------------------------------------------------------
-indicators <- c("pm25", "pm10", "aqi.cn", "aqi.us")
-limit <- tibble(indicator=c("pm25", "pm10", "aqi.cn", "aqi.us"),
-                limit=c(500, 800, 300, 300))
+plot_ts(meas %>% filter(indicator %in% c("pm10", "pm25")), n_days=7)
+plot_ts(meas %>% filter(indicator %in% c("pm10", "pm25")), n_days=30)
 
-plot_ts <- function(n_days){
-  ggplot(meas %>%
-           left_join(limit) %>% filter(indicator %in% indicators, value < limit) %>%
-           rcrea::utils.rolling_average("day", n_days, "value", min_values = as.integer(n_days/3))
+# Daily and weekly time series ------------------------------------------------------
+plot_hourly_variation(meas, station="lamao", indicator="pm25",
+                      indicator_name="PM 2.5", indicator_unit = "µg/m3",
+                      folder="results/hourly", weekdays_only = T)
 
-  ) +
-    geom_line(aes(date, value, color=toupper(station))) +
-    facet_wrap(~indicator, scales="free_y") +
-    scale_color_discrete(name="Station")+
-    ylim(0,NA) +
-    theme_crea() +
-    labs(subtitle=paste0(n_days,"-day running average"), x=NULL, y=NULL)
+plot_daily_variation(meas, station="lamao", indicator="pm25",
+                      indicator_name="PM 2.5", indicator_unit = "µg/m3",
+                      folder="results/daily")
 
-  ggsave(file.path("results", paste0("manila_sensors_",n_days,"d.png")), width=10, height=8)
-}
+plot_hourly_variation(meas, station="nch", indicator="pm25",
+                      indicator_name="PM 2.5", indicator_unit = "µg/m3",
+                      folder="results/hourly", weekdays_only = T)
 
-plot_ts(7)
-plot_ts(30)
+plot_daily_variation(meas, station="nch", indicator="pm25",
+                     indicator_name="PM 2.5", indicator_unit = "µg/m3",
+                     folder="results/daily")
 
+plot_hourly_variation(meas, station="sph", indicator="pm25",
+                      indicator_name="PM 2.5", indicator_unit = "µg/m3",
+                      folder="results/hourly", weekdays_only = T)
+
+plot_daily_variation(meas, station="sph", indicator="pm25",
+                     indicator_name="PM 2.5", indicator_unit = "µg/m3",
+                     folder="results/daily")
+
+
+# Transport ---------------------------------------------------------------
+
+# rush hours
+t.2019 <- read.transport.weekhours.2019()
+plot_hourly_transport(t.2019, folder="results/hourly")
+
+
+ggplot(t.2019 %>% group_by(hour))
+t <- rcrea::transport.tomtom_congestion(cities=tibble(country="ID",city="Jakarta"))
+
+ggplot(t %>% mutate(weekday=lubridate::wday(date, label=T, week_start=1)) %>% group_by(city,weekday) %>%  summarise(value=mean(value))) + geom_line(aes(weekday, value,group=city))
 
 # Trajectories ------------------------------------------------------------
 trajs <- stations %>% rowwise() %>%
@@ -93,7 +112,7 @@ meas <- bind_rows(meas, meas.powerplants)
 
 trajs_meas <- trajs %>% select(-c(direction)) %>%
   tidyr::unnest(cols=c(trajs)) %>%
-  left_join(meas, by=c("station"="station", "date"="date")) %>%
+  inner_join(meas), by=c("station"="station", "date"="date")) %>%
   dplyr::distinct(station, traj_dt, traj_dt_i, .keep_all=T) #TODO find why there are "duplicate" yet not duplicate
 
 # We use maximum daily values rather than mean
@@ -210,7 +229,7 @@ basemaps <- bind_rows(
 
 # Peaks
 
-map_station <- function(station, radius_km, threshold){
+map_station <- function(trajs_meas, station, radius_km, threshold){
 
   t <- trajs_meas %>% filter(station==!!station)
   b <- (basemaps  %>% filter(station==!!station,
@@ -219,137 +238,137 @@ map_station <- function(station, radius_km, threshold){
   date.min <- min(t$date, na.rm=T) %>% lubridate::date()
   date.max <- max(t$date, na.rm=T) %>% lubridate::date()
 
-map_peaks(
-    basemap = b,
-    trajs_meas = t,
-    industries = NULL,
-    threshold = threshold,
-    filename = paste0("traj_peaks_",radius_km,"km_",station,"_threshold",threshold,".jpg"),
-    add_plot=labs(
-      title=paste("Source of air flowing into", toupper(station),"sensor"),
-      subtitle=paste0(date.min, " - ", date.max, ". Days when PM2.5 levels >= ", threshold, " µg/m3"),
-      caption="Source: CREA based on HYSPLIT.")
-  )
+  map_peaks(
+      basemap = b,
+      trajs_meas = t,
+      industries = NULL,
+      threshold = threshold,
+      filename = paste0("traj_peaks_",radius_km,"km_",station,"_threshold",threshold,".jpg"),
+      add_plot=labs(
+        title=paste("Source of air flowing into", toupper(station),"sensor"),
+        subtitle=paste0(date.min, " - ", date.max, ". Days when PM2.5 levels >= ", threshold, " µg/m3"),
+        caption="Source: CREA based on HYSPLIT.")
+    )
 }
 
 for(threshold in c(30,40,50,60)){
   for(radius_km in c(1,10,50)){
-    map_station("lamao", radius_km, threshold)
-    map_station("lamao.powerplant", radius_km, threshold)
-    map_station("nch", radius_km, threshold)
-    map_station("sph", radius_km, threshold)
-    map_station("sph.powerplant", radius_km, threshold)
+    map_station(trajs_meas, "lamao", radius_km, threshold)
+    map_station(trajs_meas, "lamao.powerplant", radius_km, threshold)
+    map_station(trajs_meas, "nch", radius_km, threshold)
+    map_station(trajs_meas, "sph", radius_km, threshold)
+    map_station(trajs_meas, "sph.powerplant", radius_km, threshold)
   }
 }
 
 
 
 # Old ---------------------------------------------------------------------
-
-
-map_peaks(
-  basemap = (basemaps_10km  %>% filter(station=="lamao") %>% pull(basemap))[[1]],
-  trajs_meas = trajs_meas %>% filter(station=="lamao"),
-  industries = NULL,
-  threshold = 20,
-  filename = "traj_peaks_10km_lamao.png"
-)
-
-map_peaks(
-  basemap = (basemaps_100km  %>% filter(station=="lamao") %>% pull(basemap))[[1]],
-  trajs_meas = trajs_meas %>% filter(station=="lamao"),
-  industries = NULL,
-  threshold = 20,
-  filename = "traj_peaks_100km_lamao.png"
-)
-
-map_peaks(
-  basemap = (basemaps_100km  %>% filter(station=="nch") %>% pull(basemap))[[1]],
-  trajs_meas = trajs_meas %>% filter(station=="nch"),
-  industries = NULL,
-  threshold = 20,
-  filename = "traj_peaks_100km_nch.png"
-)
-
-map_peaks(
-  basemap = (basemaps_100km  %>% filter(station=="sph") %>% pull(basemap))[[1]],
-  trajs_meas = trajs_meas %>% filter(station=="sph"),
-  industries = NULL,
-  threshold = 20,
-  filename = "traj_peaks_100km_sph.png"
-)
-
-map_peaks(
-  basemap = basemap_100km,
-  trajs_meas = trajs_meas_2020 %>% dplyr::filter(traj_dt_i>="2020-01-01"),
-  industries = industries,
-  threshold = 60,
-  add_plot=labs(subtitle="January-May 2020"),
-  filename = "traj_peaks_100km_60_2020.png"
-)
-
-map_peaks(
-  basemap = basemap_100km,
-  trajs_meas = trajs_meas_mean_2020 %>% dplyr::filter(traj_dt_i>="2020-01-01"),
-  industries = industries,
-  threshold = 70,
-  add_plot=labs(subtitle="January-May 2020"),
-  filename = "traj_peaks_100km_70_2020.png"
-)
-
-map_peaks(
-  basemap = basemap_100km,
-  trajs_meas = trajs_meas %>% mutate(year=lubridate::year(traj_dt_i),
-                                     month=lubridate::month(traj_dt_i)) %>%
-    group_by(year, month) %>% filter(value==max(value, na.rm=T)) %>%
-    ungroup() %>% dplyr::filter(traj_dt_i>="2020-01-01"),
-  industries = industries,
-  threshold = 0,
-  add_plot=labs(subtitle="January-May 2020",
-                caption="CREA based on OpenAQ, HYSPLIT model and PROPER. A pollution peak is defined as the day with highest PM2.5 level in any given month"),
-  filename = "traj_peaks_100km_month_2020.png"
-)
-
-
-map_peaks(
-  basemap = basemap_100km,
-  trajs_meas = trajs_meas %>% mutate(period= traj_dt_i %>%
-                                       cut(breaks=as.POSIXct(c("2020-03-14","2020-04-09","2020-06-04","2020-06-30")),
-                                           labels=c("14 March - 9 April (wfh)","10 April - 4 June (mass physical distancing)","5 June - 30 june (transition to \"normal\")"))) %>%
-    filter(!is.na(period)) %>% group_by(period) %>% filter(value==max(value, na.rm=T)) %>%
-    ungroup(),
-  industries = industries,
-  threshold = 0,
-  add_plot=list(
-    facet_wrap(~period),
-    labs(subtitle=NULL,
-         caption="CREA based on OpenAQ, HYSPLIT model and PROPER. A pollution peak is defined as the day with highest PM2.5 level in the different periods.")),
-  filename = "traj_peaks_100km_period_2020.png"
-)
-
-
-map_peaks(
-  basemap = basemap_100km,
-  trajs_meas = trajs_meas %>% mutate(period= traj_dt_i %>%
-                                       cut(breaks=as.POSIXct(c("2020-03-14","2020-04-09","2020-06-04","2020-06-30")),
-                                           labels=c("14 March - 9 April (wfh)","10 April - 4 June (mass physical distancing)","5 June - 30 june (transition to \"normal\")"))) %>%
-    filter(!is.na(period)) %>% group_by(period) %>%
-    filter(value==max(value, na.rm=T)) %>%
-    ungroup(),
-  industries = industries,
-  threshold = 0,
-  add_plot=list(
-    facet_wrap(~period),
-    labs(subtitle=NULL,
-         caption="CREA based on OpenAQ, HYSPLIT model and PROPER. Pollution peaks are defined as the 3-days with highest PM2.5 level in the different periods.")),
-  filename = "traj_peaks_100km_period_2020.png"
-)
-
-
-
-
-# Lauri trajectories ------------------------------------------------------
-
-trajs_lauri <- get_trajs_lauri()
-map_trajs_lauri(basemap_100km, trajs_lauri, industries, filename = "trajs_20200412_lauri.png")
+#
+#
+# map_peaks(
+#   basemap = (basemaps_10km  %>% filter(station=="lamao") %>% pull(basemap))[[1]],
+#   trajs_meas = trajs_meas %>% filter(station=="lamao"),
+#   industries = NULL,
+#   threshold = 20,
+#   filename = "traj_peaks_10km_lamao.png"
+# )
+#
+# map_peaks(
+#   basemap = (basemaps_100km  %>% filter(station=="lamao") %>% pull(basemap))[[1]],
+#   trajs_meas = trajs_meas %>% filter(station=="lamao"),
+#   industries = NULL,
+#   threshold = 20,
+#   filename = "traj_peaks_100km_lamao.png"
+# )
+#
+# map_peaks(
+#   basemap = (basemaps_100km  %>% filter(station=="nch") %>% pull(basemap))[[1]],
+#   trajs_meas = trajs_meas %>% filter(station=="nch"),
+#   industries = NULL,
+#   threshold = 20,
+#   filename = "traj_peaks_100km_nch.png"
+# )
+#
+# map_peaks(
+#   basemap = (basemaps_100km  %>% filter(station=="sph") %>% pull(basemap))[[1]],
+#   trajs_meas = trajs_meas %>% filter(station=="sph"),
+#   industries = NULL,
+#   threshold = 20,
+#   filename = "traj_peaks_100km_sph.png"
+# )
+#
+# map_peaks(
+#   basemap = basemap_100km,
+#   trajs_meas = trajs_meas_2020 %>% dplyr::filter(traj_dt_i>="2020-01-01"),
+#   industries = industries,
+#   threshold = 60,
+#   add_plot=labs(subtitle="January-May 2020"),
+#   filename = "traj_peaks_100km_60_2020.png"
+# )
+#
+# map_peaks(
+#   basemap = basemap_100km,
+#   trajs_meas = trajs_meas_mean_2020 %>% dplyr::filter(traj_dt_i>="2020-01-01"),
+#   industries = industries,
+#   threshold = 70,
+#   add_plot=labs(subtitle="January-May 2020"),
+#   filename = "traj_peaks_100km_70_2020.png"
+# )
+#
+# map_peaks(
+#   basemap = basemap_100km,
+#   trajs_meas = trajs_meas %>% mutate(year=lubridate::year(traj_dt_i),
+#                                      month=lubridate::month(traj_dt_i)) %>%
+#     group_by(year, month) %>% filter(value==max(value, na.rm=T)) %>%
+#     ungroup() %>% dplyr::filter(traj_dt_i>="2020-01-01"),
+#   industries = industries,
+#   threshold = 0,
+#   add_plot=labs(subtitle="January-May 2020",
+#                 caption="CREA based on OpenAQ, HYSPLIT model and PROPER. A pollution peak is defined as the day with highest PM2.5 level in any given month"),
+#   filename = "traj_peaks_100km_month_2020.png"
+# )
+#
+#
+# map_peaks(
+#   basemap = basemap_100km,
+#   trajs_meas = trajs_meas %>% mutate(period= traj_dt_i %>%
+#                                        cut(breaks=as.POSIXct(c("2020-03-14","2020-04-09","2020-06-04","2020-06-30")),
+#                                            labels=c("14 March - 9 April (wfh)","10 April - 4 June (mass physical distancing)","5 June - 30 june (transition to \"normal\")"))) %>%
+#     filter(!is.na(period)) %>% group_by(period) %>% filter(value==max(value, na.rm=T)) %>%
+#     ungroup(),
+#   industries = industries,
+#   threshold = 0,
+#   add_plot=list(
+#     facet_wrap(~period),
+#     labs(subtitle=NULL,
+#          caption="CREA based on OpenAQ, HYSPLIT model and PROPER. A pollution peak is defined as the day with highest PM2.5 level in the different periods.")),
+#   filename = "traj_peaks_100km_period_2020.png"
+# )
+#
+#
+# map_peaks(
+#   basemap = basemap_100km,
+#   trajs_meas = trajs_meas %>% mutate(period= traj_dt_i %>%
+#                                        cut(breaks=as.POSIXct(c("2020-03-14","2020-04-09","2020-06-04","2020-06-30")),
+#                                            labels=c("14 March - 9 April (wfh)","10 April - 4 June (mass physical distancing)","5 June - 30 june (transition to \"normal\")"))) %>%
+#     filter(!is.na(period)) %>% group_by(period) %>%
+#     filter(value==max(value, na.rm=T)) %>%
+#     ungroup(),
+#   industries = industries,
+#   threshold = 0,
+#   add_plot=list(
+#     facet_wrap(~period),
+#     labs(subtitle=NULL,
+#          caption="CREA based on OpenAQ, HYSPLIT model and PROPER. Pollution peaks are defined as the 3-days with highest PM2.5 level in the different periods.")),
+#   filename = "traj_peaks_100km_period_2020.png"
+# )
+#
+#
+#
+#
+# # Lauri trajectories ------------------------------------------------------
+#
+# trajs_lauri <- get_trajs_lauri()
+# map_trajs_lauri(basemap_100km, trajs_lauri, industries, filename = "trajs_20200412_lauri.png")
 
