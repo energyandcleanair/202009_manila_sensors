@@ -93,7 +93,7 @@ build_trajectories <- function(lat, lon, height, duration, dates, met_type, stat
 
   # Parallelize trajectory calculations
   # dates_split <- split(dates, ceiling(seq_along(dates)/30))
-  trajs_at_dates <- function(date){
+  trajs_at_date <- function(date){
     tryCatch({
       hysplit_trajectory(
         lon = lon,
