@@ -10,17 +10,27 @@ read.stations <- function(with_powerplants){
 
 read.measurements <- function(stations){
 
-    d.lamao <- readxl::read_xlsx(file.path("data","LAMAO reading from Feb04-Aug19 2020.xlsx"))
-    d.nch <- readxl::read_xlsx(file.path("data","NCH reading from Jan25-May29 2020.xlsx"))
-    d.sph <- readxl::read_xlsx(file.path("data","SPH Iloilo reading from Jan25-Aug19 2020.xlsx"))
+    d.lamao <- readxl::read_xlsx("data/LAMAO AQ - 02 04, 2020 - 12 22, 2020.xlsx")
+    d.nch <- readxl::read_xlsx("data/NCH AQ 05 31, 2020.xlsx")
+    d.sph <- readxl::read_xlsx("data/SPHI AQ - 03 12 - 04 12, 2021.xlsx")
 
     d.wide <- rbind(d.lamao %>% mutate(station="lamao"),
                d.nch %>% mutate(station="nch"),
                d.sph %>% mutate(station="sph")
     )
 
+    timestamp_to_date <- function(t){
+      t <- as.numeric(t)
+      # Some are expressed in days since 1900
+      days_since_1900 <- t<50000
+      days_offset <- as.integer(lubridate::date("1970-01-01") - lubridate::date("1900-01-01"), unit="days")
+      t[days_since_1900] <- (t[days_since_1900]-days_offset)*24*3600
+
+      as.POSIXct(t, origin="1970-01-01", tz="Asia/Manila")
+    }
+
     d <- d.wide %>% rename(timezone=Timezone,
-                 date=Datetime,
+                 date_str=Datetime,
                  aqi.us=`AQI US`,
                  aqi.cn=`AQI CN`,
                  pm25=`PM2.5 (ug/m3)`,
@@ -33,9 +43,13 @@ read.measurements <- function(stations){
                  hcho="HCHO (ppb)",
                  tvoc="TVOC (ppb)"
                  ) %>%
-      tidyr::pivot_longer(cols=!c(timezone, date, station), names_to="indicator", values_to="value") %>%
-      left_join(stations)
+      tidyr::pivot_longer(cols=!c(timezone, date_str, station), names_to="indicator", values_to="value") %>%
+      left_join(stations) %>%
+      mutate(date=lubridate::parse_date_time(date_str, c("%d/%m/%Y %H:%M","%d/%m/%Y %H:%M %p"), tz="Asia/Manila"))
 
+    # Some dates were in timestamp(s)
+    d[is.na(d$date),"date"] <- timestamp_to_date(d[is.na(d$date),]$date_str)
+    d$date_str <- NULL
     return(d)
 }
 
@@ -52,20 +66,25 @@ read.transport.weekhours.2019 <- function(){
           )
 }
 
-build_trajectories <- function(lat, lon, height, duration, date_from, date_to, met_type, station,
+build_trajectories <- function(lat, lon, height, duration, dates, met_type, station,
                                direction="backward",
                                use_cache=T,
                                save_to_cache=T){
 
+  lon <- unique(lon)
+  lat <- unique(lat)
+  station <- unique(station)
+  direction <- unique(direction)
+
   filepath <- file.path(dir_results, paste0("trajs_raw_", met_type,"_",station,".RDS"))
-  dates <- seq(lubridate::date(date_from), lubridate::date(date_to), by="day")
+  # dates <- seq(lubridate::date(date_from), lubridate::date(date_to), by="day")
 
   # Check cache exists and contains dates
   if(use_cache & file.exists(filepath)){
     trajs <- readRDS(filepath) %>% filter(direction==direction)
     enough <-
-      (min(lubridate::date(trajs$traj_dt_i), na.rm=T) <= date_from) &
-      (max(lubridate::date(trajs$traj_dt_i), na.rm=T) >= date_to) &
+      (min(lubridate::date(trajs$traj_dt_i), na.rm=T) <= min(dates)) &
+      (max(lubridate::date(trajs$traj_dt_i), na.rm=T) >= max(dates)) &
       all(trajs$lat_i==lat) &
       all(trajs$lon_i==lon)
 
@@ -73,15 +92,15 @@ build_trajectories <- function(lat, lon, height, duration, date_from, date_to, m
   }
 
   # Parallelize trajectory calculations
-  dates_split <- split(dates, ceiling(seq_along(dates)/30))
-  trajs_at_dates <- function(dates){
+  # dates_split <- split(dates, ceiling(seq_along(dates)/30))
+  trajs_at_dates <- function(date){
     tryCatch({
       hysplit_trajectory(
         lon = lon,
         lat = lat,
         height = height,
         duration = duration,
-        days = dates,
+        days = date,
         daily_hours = c(0, 6, 12, 18),
         direction = direction,
         met_type = met_type,
@@ -98,10 +117,8 @@ build_trajectories <- function(lat, lon, height, duration, date_from, date_to, m
   }
 
   trajs <- do.call('rbind',
-                 pbmclapply(dates_split, trajs_at_dates, mc.cores=detectCores()-1))
+                   lapply(dates, trajs_at_date))
 
-  trajs <- do.call('rbind',
-                   lapply(dates_split, trajs_at_dates))
   # Update fields to be compatible with OpenAIR
   trajs$hour.inc <- trajs$hour_along
   trajs$date <- trajs$traj_dt_i

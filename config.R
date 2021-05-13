@@ -1,4 +1,4 @@
-
+readRenviron(".Renviron")
 
 ggmap::register_google("AIzaSyAM2hj3VbXCSjAXIjLjLH_DfPPSiV8Bhg0")
 

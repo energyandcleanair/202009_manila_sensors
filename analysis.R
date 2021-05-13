@@ -7,6 +7,7 @@
 require(openair)
 # devtools::install_github("rich-iannone/SplitR")
 require(splitr)
+require(creatrajs)
 require(here)
 require(lubridate)
 require(tibble)
@@ -21,7 +22,6 @@ require(grid)
 require(dplyr)
 require(tidyr)
 
-
 source('./config.R')
 source('./utils.R')
 source('./plots.R')
@@ -34,7 +34,7 @@ duration <- 48
 height <- 10
 radius_km <- 100
 date_from <- "2020-01-02"
-date_to <- "2020-08-31"
+date_to <- lubridate::today()
 met_type <- "gfs0.25"
 alt_max <- 2e3
 
@@ -147,13 +147,22 @@ t <- rcrea::transport.tomtom_congestion(cities=tibble(country="ID",city="Jakarta
 ggplot(t %>% mutate(weekday=lubridate::wday(date, label=T, week_start=1)) %>% group_by(city,weekday) %>%  summarise(value=mean(value))) + geom_line(aes(weekday, value,group=city))
 
 # Trajectories ------------------------------------------------------------
-trajs <- stations %>% rowwise() %>%
-  mutate(trajs=list(build_trajectories(latitude, longitude, height, duration, date_from, date_to, met_type=met_type, station=station, direction=direction, use_cache = T)))
 
 
+meas <- read.measurements(stations)
+meas.day <- meas %>%
+  group_by(station, latitude, longitude, indicator, date=lubridate::date(date)) %>%
+  summarise(value=mean(value, na.rm=T)) %>%
+  ungroup() %>%
+  filter(indicator=="pm25",
+         value>30) # Only trajectories for days above certain level
 
-# Merge with measurements
-meas <- read.measurements() %>% filter(indicator=="pm25")
+
+trajs <- meas.day %>%
+  group_by(station, latitude, longitude, indicator) %>%
+  summarise(trajs=list(build_trajectories(latitude, longitude, height, duration, dates=date, met_type=met_type, station=station, use_cache = T)))
+
+
 
 meas.powerplants <- meas %>%
   filter(station %in% c("lamao", "sph")) %>%
