@@ -35,7 +35,7 @@ height <- 10
 radius_km <- 100
 date_from <- "2020-01-02"
 date_to <- lubridate::today()
-met_type <- "gfs0.25"
+met_type <- "reanalysis" #gfs0.25"
 alt_max <- 2e3
 
 
@@ -148,7 +148,7 @@ ggplot(t %>% mutate(weekday=lubridate::wday(date, label=T, week_start=1)) %>% gr
 
 # Trajectories ------------------------------------------------------------
 
-
+stations <- read.stations()
 meas <- read.measurements(stations)
 meas.day <- meas %>%
   group_by(station, latitude, longitude, indicator, date=lubridate::date(date)) %>%
@@ -171,9 +171,9 @@ meas.powerplants <- meas %>%
 meas <- bind_rows(meas, meas.powerplants)
 
 
-trajs_meas <- trajs %>% select(-c(direction)) %>%
+trajs_meas <- trajs %>% #select(-c(direction)) %>%
   tidyr::unnest(cols=c(trajs)) %>%
-  inner_join(meas), by=c("station"="station", "date"="date")) %>%
+  inner_join(meas, by=c("station"="station", "date"="date")) %>%
   dplyr::distinct(station, traj_dt, traj_dt_i, .keep_all=T) #TODO find why there are "duplicate" yet not duplicate
 
 # We use maximum daily values rather than mean
@@ -213,6 +213,7 @@ build.basemap <- function(stations, radius_km, zoom){
     st_transform(crs=3857) %>%
     st_buffer(radius_km*1000) %>%
     st_transform(crs=4326) %>%
+    as.data.frame() %>%
     rowwise() %>%
     mutate(geometry=purrr::map(geometry, st_bbox)) %>%
     mutate(basemap=list(get_map(location=unname(geometry),
@@ -290,7 +291,7 @@ basemaps <- bind_rows(
 
 # Peaks
 
-map_station <- function(trajs_meas, station, radius_km, threshold){
+map_station <- function(trajs_meas, station, radius_km, threshold, basemaps){
 
   t <- trajs_meas %>% filter(station==!!station)
   b <- (basemaps  %>% filter(station==!!station,
@@ -314,11 +315,11 @@ map_station <- function(trajs_meas, station, radius_km, threshold){
 
 for(threshold in c(30,40,50,60)){
   for(radius_km in c(1,10,50)){
-    map_station(trajs_meas, "lamao", radius_km, threshold)
-    map_station(trajs_meas, "lamao.powerplant", radius_km, threshold)
-    map_station(trajs_meas, "nch", radius_km, threshold)
-    map_station(trajs_meas, "sph", radius_km, threshold)
-    map_station(trajs_meas, "sph.powerplant", radius_km, threshold)
+    map_station(trajs_meas, "lamao", radius_km, threshold, basemaps)
+    map_station(trajs_meas, "lamao.powerplant", radius_km, threshold, basemaps)
+    map_station(trajs_meas, "nch", radius_km, threshold, basemaps)
+    map_station(trajs_meas, "sph", radius_km, threshold, basemaps)
+    map_station(trajs_meas, "sph.powerplant", radius_km, threshold, basemaps)
   }
 }
 
