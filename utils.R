@@ -81,7 +81,7 @@ build_trajectories <- function(lat, lon, height, duration, dates, met_type, stat
 
   # Check cache exists and contains dates
   if(use_cache & file.exists(filepath)){
-    trajs <- readRDS(filepath) %>% filter(direction==direction)
+    trajs <- readRDS(filepath) %>% filter(direction==direction) %>% filter(!is.na(run))
     enough <-
       (min(lubridate::date(trajs$traj_dt_i), na.rm=T) <= min(dates)) &
       (max(lubridate::date(trajs$traj_dt_i), na.rm=T) >= max(dates)) &

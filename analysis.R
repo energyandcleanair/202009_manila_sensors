@@ -35,7 +35,7 @@ height <- 10
 radius_km <- 100
 date_from <- "2020-01-02"
 date_to <- lubridate::today()
-met_type <- "reanalysis" #gfs0.25"
+met_type <- "gfs0.25" # "reanalysis"
 alt_max <- 2e3
 
 
@@ -44,8 +44,6 @@ alt_max <- 2e3
 #########################
 stations <- read.stations()
 meas <- read.measurements(stations)
-
-
 limit <- tibble(indicator=c("pm25", "pm10", "aqi.cn", "aqi.us"),
                 indicator_name=c("PM2.5", "PM10", "AQI (CN)", "AQI (US)"),
                 limit=c(500, 1041, 300, 300),
@@ -109,6 +107,9 @@ plot_daily_exceedances(meas, indicator=c("pm25","pm10"), standard,
                        station="sph",
                        folder="results/daily")
 
+plot_daily_exceedances(meas, indicator=c("pm25","pm10"), standard,
+                       station=NULL,
+                       folder="results/daily")
 
 plot_daily_exceedances(meas, indicator=c("pm25"), standard,
                        station="lamao",
@@ -122,6 +123,10 @@ plot_daily_exceedances(meas, indicator=c("pm25"), standard,
                        station="sph",
                        folder="results/daily")
 
+plot_daily_exceedances(meas, indicator=c("pm25"), standard,
+                       station=NULL,
+                       folder="results/daily")
+
 plot_monthly_exceedances(meas, indicator=c("pm25"), standard,
                          station="lamao",
                          folder="results/monthly")
@@ -133,6 +138,10 @@ plot_monthly_exceedances(meas, indicator=c("pm25"), standard,
 plot_monthly_exceedances(meas, indicator=c("pm25"), standard,
                        station="sph",
                        folder="results/monthly")
+
+plot_monthly_exceedances(meas, indicator=c("pm25"), standard,
+                         station=NULL,
+                         folder="results/monthly")
 
 # Transport ---------------------------------------------------------------
 
@@ -148,32 +157,33 @@ ggplot(t %>% mutate(weekday=lubridate::wday(date, label=T, week_start=1)) %>% gr
 
 # Trajectories ------------------------------------------------------------
 
-stations <- read.stations()
-meas <- read.measurements(stations)
+# stations <- read.stations()
+# meas <- read.measurements(stations)
 meas.day <- meas %>%
   group_by(station, latitude, longitude, indicator, date=lubridate::date(date)) %>%
   summarise(value=mean(value, na.rm=T)) %>%
   ungroup() %>%
   filter(indicator=="pm25",
-         value>30) # Only trajectories for days above certain level
-
+         value>30,
+         date>="2020-01-01") # Only trajectories for days above certain level
 
 trajs <- meas.day %>%
   group_by(station, latitude, longitude, indicator) %>%
   summarise(trajs=list(build_trajectories(latitude, longitude, height, duration, dates=date, met_type=met_type, station=station, use_cache = T)))
 
 
-
-meas.powerplants <- meas %>%
-  filter(station %in% c("lamao", "sph")) %>%
-  mutate(station=paste0(station,".powerplant"))
-
-meas <- bind_rows(meas, meas.powerplants)
-
+#
+# meas.powerplants <- meas %>%
+#   filter(station %in% c("lamao", "sph")) %>%
+#   mutate(station=paste0(station,".powerplant"))
+#
+# meas <- bind_rows(meas, meas.powerplants)
+#
 
 trajs_meas <- trajs %>% #select(-c(direction)) %>%
   tidyr::unnest(cols=c(trajs)) %>%
-  inner_join(meas, by=c("station"="station", "date"="date")) %>%
+  mutate(lubridate::date(date)) %>%
+  inner_join(meas.day, by=c("station"="station", "date"="date")) %>%
   dplyr::distinct(station, traj_dt, traj_dt_i, .keep_all=T) #TODO find why there are "duplicate" yet not duplicate
 
 # We use maximum daily values rather than mean
@@ -313,13 +323,13 @@ map_station <- function(trajs_meas, station, radius_km, threshold, basemaps){
     )
 }
 
-for(threshold in c(30,40,50,60)){
-  for(radius_km in c(1,10,50)){
+for(threshold in c(30,50,60,70,80,90,100)){
+  for(radius_km in c(10,50)){
     map_station(trajs_meas, "lamao", radius_km, threshold, basemaps)
-    map_station(trajs_meas, "lamao.powerplant", radius_km, threshold, basemaps)
+    # map_station(trajs_meas, "lamao.powerplant", radius_km, threshold, basemaps)
     map_station(trajs_meas, "nch", radius_km, threshold, basemaps)
     map_station(trajs_meas, "sph", radius_km, threshold, basemaps)
-    map_station(trajs_meas, "sph.powerplant", radius_km, threshold, basemaps)
+    # map_station(trajs_meas, "sph.powerplant", radius_km, threshold, basemaps)
   }
 }
 

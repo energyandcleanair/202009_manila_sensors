@@ -19,7 +19,7 @@ plot_ts <- function(meas, n_days){
   }
 
   (plt <- ggplot(meas %>%
-           rcrea::utils.rolling_average("day", n_days, "value", min_values = as.integer(n_days/3))) +
+           rcrea::utils.rolling_average("day", n_days, "value", min_values = as.integer(n_days/2))) +
     geom_line(aes(date, value, color=station_name)) +
     facet_wrap(~indicator_name, scales="free_y") +
     scale_color_discrete(name=NULL)+
@@ -117,10 +117,10 @@ plot_daily_variation <- function(meas, station, indicator, indicator_name, indic
 
 plot_daily_exceedances <- function(meas, indicator=c("pm10","pm25"), standard, station, folder){
 
+
   m <- meas %>%
     filter(indicator %in% !!indicator,
-           !is.na(value),
-           station==!!station) %>%
+           !is.na(value)) %>%
     group_by(station, station_name,  indicator, indicator_name, date=lubridate::date(date)) %>%
     summarize(value=mean(value)) %>%
     group_by(station, indicator_name, weekday=lubridate::wday(date, label=T, week_start=1)) %>%
@@ -131,7 +131,12 @@ plot_daily_exceedances <- function(meas, indicator=c("pm10","pm25"), standard, s
     summarize(n_days_violations=n()) %>%
     mutate(fraction=n_days_violations/n_days_total)
 
-  station_name <- unique(m$station_name)
+  if(!is.null(station)){
+    m <- m %>% filter(station==!!station)
+  }
+
+
+  station_name <- ifelse(is.null(station), "", paste0(" in ",unique(m$station_name)))
 
   wdays <- c("Mon","Tue","Wed","Thu","Fri","Sat","Sun")
   filler <- tidyr::crossing(station=station, indicator=indicator,
@@ -141,18 +146,23 @@ plot_daily_exceedances <- function(meas, indicator=c("pm10","pm25"), standard, s
     mutate(weekday=factor(weekday, levels=wdays))
 
 
-  (plt <- ggplot(m.filled %>% replace_na(list("fraction"=0))) +
+  plt <- ggplot(m.filled %>% replace_na(list("fraction"=0))) +
     geom_bar(stat="identity", aes(x=weekday, y=fraction, fill=indicator_name), position="dodge") +
     scale_y_continuous(labels = scales::percent, expand=expansion(mult=c(0,0.1))) +
     rcrea::CREAtheme.scale_fill_crea_d(name=NULL) +
     theme_crea() +
-    labs(title=paste("Violations of air quality levels in", station_name),
+    labs(title=paste("Violations of air quality levels", station_name),
          y="Share of days above regulatory threshold",
-         x=NULL))
+         x=NULL)
+
+  if(is.null(station)){
+    plt <- plt + facet_wrap(~station_name)
+  }
 
   dir.create(folder, showWarnings = F, recursive = T)
 
-  ggsave(file.path(folder, paste0("daily_violations_",paste0(indicator,collapse="_"),"_", station,".png")), plot=plt,
+  ggsave(file.path(folder, paste0("daily_violations_",paste0(indicator,collapse="_"),"_",
+                                  ifelse(is.null(station),"all",station),".png")), plot=plt,
          width=10, height=4)
 
   return(plt)
@@ -162,8 +172,7 @@ plot_monthly_exceedances <- function(meas, indicator=c("pm10","pm25"), standard,
 
   m <- meas %>%
     filter(indicator %in% !!indicator,
-           !is.na(value),
-           station==!!station) %>%
+           !is.na(value)) %>%
     group_by(station, station_name,  indicator, indicator_name, date=lubridate::date(date)) %>%
     summarize(value=mean(value)) %>%
     group_by(station, indicator_name, month=lubridate::round_date(date, unit="month")) %>%
@@ -174,7 +183,11 @@ plot_monthly_exceedances <- function(meas, indicator=c("pm10","pm25"), standard,
     summarize(n_days_violations=n()) %>%
     mutate(fraction=n_days_violations/n_days_total)
 
-  station_name <- unique(m$station_name)
+  if(!is.null(station)){
+    m <- m %>% filter(station==!!station)
+  }
+
+  station_name <- ifelse(is.null(station), "", paste0(" in ",unique(m$station_name)))
 
   months <- unique(m$month)
   filler <- tidyr::crossing(station=station, indicator=indicator,
@@ -185,17 +198,22 @@ plot_monthly_exceedances <- function(meas, indicator=c("pm10","pm25"), standard,
 
   (plt <- ggplot(m.filled %>% replace_na(list("fraction"=0))) +
       geom_bar(stat="identity", aes(x=month, y=fraction, fill=indicator_name), position="dodge") +
-      scale_x_date(date_labels = "%b", date_breaks = "1 months") +
+      scale_x_date(date_labels = "%b %y", date_breaks = "1 months") +
       scale_y_continuous(labels = scales::percent, expand=expansion(mult=c(0,0.1))) +
       rcrea::CREAtheme.scale_fill_crea_d(name=NULL) +
       theme_crea() +
-      labs(title=paste("Violations of air quality levels in", station_name),
+      labs(title=paste("Violations of air quality levels", station_name),
            y="Share of days above regulatory threshold",
            x=NULL))
 
+  if(is.null(station)){
+    plt <- plt + facet_wrap(~station_name)
+  }
+
   dir.create(folder, showWarnings = F, recursive = T)
 
-  ggsave(file.path(folder, paste0("monthly_violations_",paste0(indicator,collapse="_"),"_", station,".png")), plot=plt,
+  ggsave(file.path(folder, paste0("monthly_violations_",paste0(indicator,collapse="_"),"_",
+                                  ifelse(is.null(station),"all",station),".png")), plot=plt,
          width=10, height=4)
 
   return(plt)
@@ -571,6 +589,12 @@ map_traj_clusters_wet <- function(basemap, data_clusters, industries, filename="
 
 map_peaks <- function(basemap, trajs_meas, industries, threshold=80, filename="traj_peaks.png", add_plot=NULL){
 
+  t <- trajs_meas %>%
+    ungroup() %>%
+    mutate(rainy=lubridate::yday(date) >= lubridate::yday("0000-06-01") &
+                     lubridate::yday(date) <= lubridate::yday("0000-10-15"),
+           season=ifelse(rainy,"Rainy season","Dry season"))
+
   (m <- ggmap(basemap, extent = "normal", maprange=FALSE) +
 
      coord_cartesian() +
@@ -581,14 +605,14 @@ map_peaks <- function(basemap, trajs_meas, industries, threshold=80, filename="t
      # geom_point(data=industries, inherit.aes = F, aes(x=lng,y=lat, shape=sector, color=sector), fill="transparent",
                 # stroke=2.5, alpha=0.8, position="jitter") +
      # Cluster trajectories
-     geom_path(data = trajs_meas %>%
+     geom_path(data = t %>%
                  dplyr::filter(value>=threshold) %>%
                  dplyr::arrange(hour_along) %>%
                  mutate(subcluster=paste(traj_dt_i, hour_along %/% 8)),
                arrow = arrow(angle=18, length=unit(0.1,"inches")),
                aes(x = lon, y = lat, group=subcluster), color="darkred", alpha=0.6) +
 
-     geom_path(data = trajs_meas %>%
+     geom_path(data = t %>%
                  dplyr::filter(value>=threshold) ,
                aes(x = lon, y = lat, group=traj_dt_i), color="darkred", alpha=0.6) +
 
@@ -597,7 +621,7 @@ map_peaks <- function(basemap, trajs_meas, industries, threshold=80, filename="t
                xlim=c(attr(basemap, "bb")$ll.lon, attr(basemap, "bb")$ur.lon),
                ylim=c(attr(basemap, "bb")$ll.lat, attr(basemap, "bb")$ur.lat)) +
 
-     # geom_line(data = trajs_meas %>% dplyr::filter(value>=threshold) , aes(x = lon, y = lat, group=traj_dt_i), alpha=0.6, color='darkred')+
+     # geom_line(data = t %>% dplyr::filter(value>=threshold) , aes(x = lon, y = lat, group=traj_dt_i), alpha=0.6, color='darkred')+
 
      theme_crea() +
      theme(panel.background = element_rect(fill='lightgray'),
@@ -617,7 +641,13 @@ map_peaks <- function(basemap, trajs_meas, industries, threshold=80, filename="t
     m <- m + add_plot
   }
 
-  ggsave(plot=m, filename=file.path("output", filename),
+  m.season <- m + facet_wrap(~season)
+
+  ggsave(plot=m, filename=file.path("results", "maps", filename),
+         width=12,
+         height=8)
+
+  ggsave(plot=m.season, filename=file.path("results", "maps", gsub("\\.jpg","_seasons\\.jpg",filename)),
          width=12,
          height=8)
 
