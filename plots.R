@@ -171,11 +171,13 @@ plot_daily_exceedances <- function(meas, indicator=c("pm10","pm25"), standard, s
 plot_monthly_exceedances <- function(meas, indicator=c("pm10","pm25"), standard, station, folder){
 
   m <- meas %>%
-    filter(indicator %in% !!indicator,
+    filter(
+      date>="2020-01-01",
+      indicator %in% !!indicator,
            !is.na(value)) %>%
     group_by(station, station_name,  indicator, indicator_name, date=lubridate::date(date)) %>%
     summarize(value=mean(value)) %>%
-    group_by(station, indicator_name, month=lubridate::round_date(date, unit="month")) %>%
+    group_by(station, indicator_name, month=lubridate::floor_date(date, unit="month")) %>%
     mutate(n_days_total=n()) %>%
     inner_join(standard) %>%
     filter(value>standard) %>%
